@@ -20,6 +20,7 @@ import openfl.filters.BitmapFilter;
 import openfl.geom.Matrix;
 import openfl.geom.ColorTransform;
 import openfl.geom.Point;
+import openfl.display.Sprite;
 
 import openfl.display._internal.Context3DGraphics;
 #if (js && html5)
@@ -57,9 +58,12 @@ class FlxAnimateFilterRenderer
 	public function new()
 	{
 		// context = new openfl.display3D.Context3D(null);
-		renderer = new OpenGLRenderer(FlxG.game.stage.context3D);
-		renderer.__worldTransform = new Matrix();
-		renderer.__worldColorTransform = new ColorTransform();
+		if(FlxG.game.stage.context3D != null)
+		{
+			renderer = new OpenGLRenderer(FlxG.game.stage.context3D);
+			renderer.__worldTransform = new Matrix();
+			renderer.__worldColorTransform = new ColorTransform();
+		}
 		maskShader = new MaskShader();
 		maskFilter = new ShaderFilter(maskShader);
 	}
@@ -111,45 +115,70 @@ class FlxAnimateFilterRenderer
 			else
 				filters.push(maskFilter);
 		}
-		renderer.__setBlendMode(NORMAL);
-		renderer.__worldAlpha = 1;
-
-		renderer.__worldTransform.identity();
-		renderer.__worldColorTransform.__identity();
 
 		var bitmap:BitmapData = target;
 		var bitmap2 = target1;
 
 		var bitmap3 = target2;
 
+		if(FlxG.game.stage.context3D != null)
+		{
+			renderer.__setBlendMode(NORMAL);
+			renderer.__worldAlpha = 1;
+	
+			renderer.__worldTransform.identity();
+			renderer.__worldColorTransform.__identity();
+		}
 
 		if (rect != null)
 			bmp.__renderTransform.translate(Math.abs(rect.x), Math.abs(rect.y));
 
 
-		renderer.__setRenderTarget(bitmap);
-		if (bmp != bitmap)
-			renderer.__renderFilterPass(bmp, renderer.__defaultDisplayShader, true);
+		if(FlxG.game.stage.context3D != null)
+		{
+			renderer.__setRenderTarget(bitmap);
+			if (bmp != bitmap)
+				renderer.__renderFilterPass(bmp, renderer.__defaultDisplayShader, true);
+		}
+
 		bmp.__renderTransform.identity();
 
 		if (filters != null)
 		{
 			for (filter in filters)
 			{
-				if (filter.__preserveObject)
+				if(FlxG.game.stage.context3D != null)
 				{
-					renderer.__setRenderTarget(bitmap3);
-					renderer.__renderFilterPass(bitmap, renderer.__defaultDisplayShader, filter.__smooth);
+					if (filter.__preserveObject)
+					{
+						renderer.__setRenderTarget(bitmap3);
+						renderer.__renderFilterPass(bitmap, renderer.__defaultDisplayShader, filter.__smooth);
+					}
+		
+					for (i in 0...filter.__numShaderPasses)
+					{
+						renderer.__setBlendMode(filter.__shaderBlendMode);
+						renderer.__setRenderTarget(bitmap2);
+						renderer.__renderFilterPass(bitmap, filter.__initShader(renderer, i, (filter.__preserveObject) ? bitmap3 : null), filter.__smooth);
+		
+						renderer.__setRenderTarget(bitmap);
+						renderer.__renderFilterPass(bitmap2, renderer.__defaultDisplayShader, filter.__smooth);
+					}
 				}
-
-				for (i in 0...filter.__numShaderPasses)
+				else
 				{
-					renderer.__setBlendMode(filter.__shaderBlendMode);
-					renderer.__setRenderTarget(bitmap2);
-					renderer.__renderFilterPass(bitmap, filter.__initShader(renderer, i, (filter.__preserveObject) ? bitmap3 : null), filter.__smooth);
+					var destPoint = new Point(bmp.__renderTransform.tx, bmp.__renderTransform.ty);
+					if (filter.__preserveObject)
+					{
+						bitmap3.copyPixels(bitmap, new Rectangle(0, 0, bitmap3.__renderTransform.a, bitmap3.__renderTransform.d), new Point(bitmap3.__renderTransform.tx, bitmap3.__renderTransform.ty));
+					}
 
-					renderer.__setRenderTarget(bitmap);
-					renderer.__renderFilterPass(bitmap2, renderer.__defaultDisplayShader, filter.__smooth);
+					var lastBitmap = filter.__applyFilter(bitmap2, bitmap, bitmap.rect, new Point(bitmap.__renderTransform.tx, bitmap.__renderTransform.ty));
+
+					if (filter.__preserveObject)
+					{
+						lastBitmap.draw(bitmap3, null);
+					}
 				}
 
 				filter.__renderDirty = false;
@@ -158,14 +187,17 @@ class FlxAnimateFilterRenderer
 			if (mask != null)
 				filters.pop();
 
-			var gl = renderer.__gl;
+			if(FlxG.game.stage.context3D != null)
+			{
+				var gl = renderer.__gl;
 
-			var renderBuffer = bitmap.getTexture(renderer.__context3D);
-			@:privateAccess
-			gl.readPixels(0, 0, bitmap.width, bitmap.height, renderBuffer.__format, gl.UNSIGNED_BYTE, bitmap.image.data);
-			bitmap.image.version = 0;
-			@:privateAccess
-			bitmap.__textureVersion = -1;
+				var renderBuffer = bitmap.getTexture(renderer.__context3D);
+				@:privateAccess
+				gl.readPixels(0, 0, bitmap.width, bitmap.height, renderBuffer.__format, gl.UNSIGNED_BYTE, bitmap.image.data);
+				bitmap.image.version = 0;
+				@:privateAccess
+				bitmap.__textureVersion = -1;
+			}
 		}
 	}
 
@@ -204,7 +236,7 @@ class FlxAnimateFilterRenderer
 
 	public function graphicstoBitmapData(gfx:Graphics, ?target:BitmapData = null, point:FlxPoint = null) // TODO!: Support for CPU based games (Cairo/Canvas only renderers)
 	{
-		if (gfx.__bounds == null) return null;
+		if (gfx.__bounds == null || FlxG.game.stage.context3D == null) return null;
 
 		var cacheRTT = renderer.__context3D.__state.renderToTexture;
 		var cacheRTTDepthStencil = renderer.__context3D.__state.renderToTextureDepthStencil;
